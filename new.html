@@ -1,0 +1,15 @@
+<!DOCTYPE html>
+<html>
+<head><title>Certificates</title>
+<script src="new.js"></script>
+</head><body>
+<a href="ca.crt">CA cert</a>
+<div id="req"></div>
+<form id="newform" action="new" method="post">
+Who are you? <input size="10" name="uname" placeholder="john"/><br/>
+What is this device/browser? <input name="resource" placeholder="laptop" size="10"/><br/>
+<keygen name="spkac" keytype="RSA"/>
+<input type="submit" value="Request"/>
+</form>
+</body>
+</html>
