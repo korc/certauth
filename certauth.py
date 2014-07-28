@@ -14,6 +14,8 @@ import bottle
 import struct
 
 DBNAME=os.environ.get("CERT_DB", os.path.join(my_dir, "certs.db"))
+CA_CRT=os.environ.get("CA_CRT", os.path.join(my_dir, "ca.crt"))
+CA_KEY=os.environ.get("CA_KEY", os.path.join(my_dir, "ca.key"))
 
 if os.environ.get("DEBUG"): bottle.debug(True)
 
@@ -66,7 +68,7 @@ def get_cert(db, req_id):
 @app.get("/ca.crt")
 def get_ca():
     response.content_type="application/x-x509-ca-cert"
-    return open(os.path.join(my_dir, "ca.crt")).read()
+    return open(CA_CRT).read()
 
 @app.post("/authorize/<req_id>")
 def authorize(req_id):
@@ -112,7 +114,7 @@ def sign_request(db, req_id):
         raise ValueError("already have cert")
     spkac=SPKAC(spkac_data, None, *exts, CN="%s/%s"%(uname, resource))
     cert_serial=int(time.time())
-    cert=spkac.gen_crt(EVP.load_key("ca.key"), X509.load_cert("ca.crt"), cert_serial).as_pem()
+    cert=spkac.gen_crt(EVP.load_key(CA_KEY), X509.load_cert(CA_CRT), cert_serial).as_pem()
     cursor.execute("insert into certs (cert, cert_serial) values (?,?)", (cert, cert_serial))
     if not have_user:
         cursor.execute("insert into users (uname) values (?)", (uname,))
