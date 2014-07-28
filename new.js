@@ -1,7 +1,7 @@
 "use strict";
 function rigNewForm(form) {
   var inp=form.querySelector("input[name=resource]");
-  var uaRe=/(Linux).*(Firefox|Chrome)/;
+  var uaRe=/(Android|Linux).*(Firefox|Chrome|Safari)/;
   var m=window.navigator.userAgent.match(uaRe);
   inp.value=m?(m[1]+" "+m[2]):window.navigator.userAgent;
   var unameInput=document.body.querySelector("input[name=uname]");
