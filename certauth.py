@@ -140,6 +140,7 @@ if __name__ == '__main__':
     except IndexError:
         print >>sys.stderr, """
 Usage: %(arg0)s <req_id> [<dnval=x1> ..]
+ OR    %(arg0)s --server [<ip>][:<port>]
 """%{"arg0":os.path.basename(sys.argv[0])}
         cursor=db.cursor()
         first="Currently unsigned requests:"
@@ -157,4 +158,12 @@ Usage: %(arg0)s <req_id> [<dnval=x1> ..]
         if first: print "No unsigned requests"
         else: print
         raise SystemExit(1)
+    if req_id=="--server":
+        port=8080
+        host="127.0.0.1"
+        if len(sys.argv)>2:
+            host_port=sys.argv[2].split(":",1)
+            if len(host_port)>1: port=int(host_port[1])
+            if host_port[0]: host=host_port[0]
+        app.run(host=host, port=port)
     else: sign_request(db, req_id, **dict(map(lambda x: x.split("=",1), sys.argv[2:])))
