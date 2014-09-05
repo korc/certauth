@@ -96,7 +96,7 @@ sql_existing="""
     (select cert_serial from certs where certs.cert_serial=requests.cert_serial) as cert_serial
   from requests where req_id=?
 """
-def sign_request(db, req_id, **dn_args):
+def sign_request(db, req_id, *dn_args):
     from pyspkac.spkac import SPKAC
     from M2Crypto import X509, EVP
     exts=[
@@ -112,8 +112,11 @@ def sign_request(db, req_id, **dn_args):
     spkac_data,uname,resource,have_user, have_cert=row
     if have_cert:
         raise ValueError("already have cert")
-    if not dn_args: dn_args["CN"]="%s/%s"%(uname, resource)
-    spkac=SPKAC(spkac_data, None, *exts, **dn_args)
+    spkac=SPKAC(spkac_data, None, *exts)
+    for dn_name,dn_value in dn_args:
+        setattr(spkac.subject, dn_name, dn_value)
+    if not dn_args:
+        spkac.subject.CN="%s/%s"%(uname, resource)
     cert_serial=int(time.time())
     cert=spkac.gen_crt(EVP.load_key(CA_KEY), X509.load_cert(CA_CRT), cert_serial).as_pem()
     cursor.execute("insert into certs (cert, cert_serial) values (?,?)", (cert, cert_serial))
@@ -166,4 +169,4 @@ Usage: %(arg0)s <req_id> [<dnval=x1> ..]
             if len(host_port)>1: port=int(host_port[1])
             if host_port[0]: host=host_port[0]
         app.run(host=host, port=port)
-    else: sign_request(db, req_id, **dict(map(lambda x: x.split("=",1), sys.argv[2:])))
+    else: sign_request(db, req_id, *map(lambda x: x.split("=",1), sys.argv[2:]))
