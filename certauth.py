@@ -96,7 +96,7 @@ sql_existing="""
     (select cert_serial from certs where certs.cert_serial=requests.cert_serial) as cert_serial
   from requests where req_id=?
 """
-def sign_request(db, req_id):
+def sign_request(db, req_id, **dn_args):
     from pyspkac.spkac import SPKAC
     from M2Crypto import X509, EVP
     exts=[
@@ -112,7 +112,8 @@ def sign_request(db, req_id):
     spkac_data,uname,resource,have_user, have_cert=row
     if have_cert:
         raise ValueError("already have cert")
-    spkac=SPKAC(spkac_data, None, *exts, CN="%s/%s"%(uname, resource))
+    if not dn_args: dn_args["CN"]="%s/%s"%(uname, resource)
+    spkac=SPKAC(spkac_data, None, *exts, **dn_args)
     cert_serial=int(time.time())
     cert=spkac.gen_crt(EVP.load_key(CA_KEY), X509.load_cert(CA_CRT), cert_serial).as_pem()
     cursor.execute("insert into certs (cert, cert_serial) values (?,?)", (cert, cert_serial))
@@ -137,7 +138,9 @@ if __name__ == '__main__':
     db=sqlite3.connect(DBNAME)
     try: req_id=sys.argv[1]
     except IndexError:
-        print >>sys.stderr, "Usage: %s <req_id>"%(os.path.basename(sys.argv[0]))
+        print >>sys.stderr, """
+Usage: %(arg0)s <req_id> [<dnval=x1> ..]
+"""%{"arg0":os.path.basename(sys.argv[0])}
         cursor=db.cursor()
         first="Currently unsigned requests:"
         try: cursor.execute("select req_id,uname,resource from requests where cert_serial is null")
@@ -154,4 +157,4 @@ if __name__ == '__main__':
         if first: print "No unsigned requests"
         else: print
         raise SystemExit(1)
-    else: sign_request(db, req_id)
+    else: sign_request(db, req_id, **dict(map(lambda x: x.split("=",1), sys.argv[2:])))
