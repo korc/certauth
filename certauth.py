@@ -100,14 +100,24 @@ sql_existing="""
     (select cert_serial from certs where certs.cert_serial=requests.cert_serial) as cert_serial
   from requests where req_id=?
 """
-def sign_request(db, req_id, *dn_args):
-    from pyspkac.spkac import SPKAC
-    from M2Crypto import X509, EVP
-    exts=[
-        X509.new_extension('basicConstraints', 'CA:FALSE', critical = True),
-        X509.new_extension('keyUsage', 'digitalSignature, keyEncipherment', critical = True),
-        X509.new_extension('extendedKeyUsage', 'clientAuth'),
-    ]
+
+from pyasn1.type import univ, namedtype, char
+from pyasn1_modules.rfc2459 import SubjectPublicKeyInfo, AlgorithmIdentifier
+class PublicKeyAndChallenge(univ.Sequence):
+    componentType = namedtype.NamedTypes(
+        namedtype.NamedType("spki", SubjectPublicKeyInfo()),
+        namedtype.NamedType("challenge", char.IA5String()),
+    )
+
+class SignedPublicKeyAndChallenge(univ.Sequence):
+    componentType = namedtype.NamedTypes(
+        namedtype.NamedType("publicKeyAndChallenge", PublicKeyAndChallenge()),
+        namedtype.NamedType("signatureAlgorithm", AlgorithmIdentifier()),
+        namedtype.NamedType("signature", univ.BitString()),
+    )
+
+def sign_request(db, req_id, subject_dn=None):
+    from M2Crypto import X509, EVP, RSA, BIO
     cursor=db.cursor()
     cursor.execute(sql_existing, (req_id,))
     row=cursor.fetchone()
@@ -116,18 +126,21 @@ def sign_request(db, req_id, *dn_args):
     spkac_data,uname,resource,have_user, have_cert=row
     if have_cert:
         raise ValueError("already have cert")
-    spkac=SPKAC(spkac_data, None, *exts)
-    for dn_name,dn_value in dn_args:
-        setattr(spkac.subject, dn_name, dn_value)
-    if not dn_args:
-        spkac.subject.CN="%s/%s"%(uname, resource)
-    cert_serial=int(time.time())
-    cert=spkac.gen_crt(EVP.load_key(CA_KEY), X509.load_cert(CA_CRT), cert_serial).as_pem()
-    cursor.execute("insert into certs (cert, cert_serial) values (?,?)", (cert, cert_serial))
+    from pyasn1.codec.der.decoder import decode as decode_der
+    from pyasn1.codec.der.encoder import encode as encode_der
+    spkac_asn1, extra_data=decode_der(spkac_data.decode("base64"), asn1Spec=SignedPublicKeyAndChallenge())
+    if extra_data: raise ValueError("Extra data after spkac: %r"%(extra_data, ))
+    pubkey_bio=BIO.MemoryBuffer("{d}BEGIN {n}{d}\n{b64}{d}END {n}{d}\n".format(d="-"*5, n="PUBLIC KEY", b64=encode_der(spkac_asn1["publicKeyAndChallenge"]["spki"]).encode("base64")))
+    pubkey_bio.close()
+    pubkey=EVP.PKey()
+    pubkey.assign_rsa(RSA.load_pub_key_bio(pubkey_bio))
+    ca_crt=X509.load_cert(CA_CRT)
+    cert=create_cert(pubkey, EVP.load_key(CA_KEY), ca_crt.get_subject(), subject_dn=subject_dn)
+    cursor.execute("insert into certs (cert, cert_serial) values (?,?)", (cert.as_pem(), cert.get_serial_number()))
     if not have_user:
         cursor.execute("insert into users (uname) values (?)", (uname,))
-    cursor.execute("insert into user_certs (uname, resource, cert_serial) values (?,?,?)", (uname, resource, cert_serial))
-    cursor.execute("update requests set cert_serial=? where req_id=?", (cert_serial, req_id,))
+    cursor.execute("insert into user_certs (uname, resource, cert_serial) values (?,?,?)", (uname, resource, cert.get_serial_number()))
+    cursor.execute("update requests set cert_serial=? where req_id=?", (cert.get_serial_number(), req_id,))
     db.commit()
     return True
 
@@ -141,7 +154,8 @@ if bottle.DEBUG:
         ret.append("Headers: \n\t%s"%("\n\t".join(map(lambda x: "%s=%r"%(x, request.headers.raw(x)),request.headers))))
         return "\n".join(ret)
 
-def create_cert(pubkey, ca_key, issuer=None, exts=None):
+def create_cert(pubkey, ca_key, issuer=None, exts=None, subject_dn=None):
+    from M2Crypto import X509, ASN1
     if exts is None: exts=[
         X509.new_extension('basicConstraints', 'CA:FALSE', critical = True),
         X509.new_extension('keyUsage', 'digitalSignature, keyEncipherment', critical = True),
@@ -159,10 +173,14 @@ def create_cert(pubkey, ca_key, issuer=None, exts=None):
     cert.set_not_after(not_after)
     cert.set_pubkey(pubkey)
     subject=X509.X509_Name()
-    while True:
-        c=raw_input("Subject component (like CN=XYZ, Enter to finish): ")
-        if not c: break
-        setattr(subject, *(c.split("=", 1)))
+    if subject_dn is None:
+        subject_dn=[]
+        while True:
+            c=raw_input("Subject DN component (like CN=XYZ, Enter to finish): ")
+            if not c: break
+            subject_dn.append(c.split("=", 1))
+    for name,val in subject_dn:
+        setattr(subject, name, val)
     cert.set_subject(subject)
     cert.set_issuer(subject if issuer is None else issuer)
     map(cert.add_ext, exts)
@@ -196,7 +214,7 @@ Usage: %(arg0)s <req_id> [<dnval=x1> ..]
             print
         if not os.path.exists(CA_CRT):
             if raw_input("Do you want to create %s? [y/N] "%(CA_CRT,)).lower().startswith("y"):
-                from M2Crypto import RSA, X509, EVP, ASN1
+                from M2Crypto import RSA, EVP, X509
                 if not os.path.exists(CA_KEY):
                     print "Saving key to %s"%(CA_KEY,)
                     RSA.gen_key(2432, 0x10001).save_key(CA_KEY, None)
@@ -216,11 +234,4 @@ Usage: %(arg0)s <req_id> [<dnval=x1> ..]
             if host_port[0]: host=host_port[0]
         app.run(host=host, port=port)
     else:
-        dn_args=map(lambda x: x.split("=",1), sys.argv[2:])
-        if not dn_args:
-            while True:
-                comp=raw_input("DN component or Enter to finish (ex: CN=user): ")
-                if not comp: break
-                dn_args.append(comp.split("=", 1))
-        if not dn_args: raise ValueError("Need to give DN to client")
-        sign_request(db, req_id, *dn_args)
+        sign_request(db, req_id, subject_dn=map(lambda x: x.split("=",1), sys.argv[2:]) or None)
