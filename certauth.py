@@ -31,6 +31,9 @@ def to_json(*args, **kwargs):
     else: ret=dict(*args, **kwargs)
     return json.dumps(ret)
 
+@app.get("/")
+def index_page(): return redirect(app.get_url("new"))
+
 @app.get("/req")
 def get_requests(db):
     response.content_type="application/json"
@@ -41,7 +44,7 @@ def get_requests(db):
     ret=map(lambda row: dict(map(lambda (i,d): (d[0],json.loads(row[i]) if d[0]=="request_info" else row[i]), enumerate(cur.description))), cur)
     return to_json(ret)
 
-@app.post("/new")
+@app.post("/new", name="new")
 def new_key(db):
     spkac=request.POST["spkac"]
     uname=request.POST["uname"]
