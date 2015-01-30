@@ -172,4 +172,12 @@ Usage: %(arg0)s <req_id> [<dnval=x1> ..]
             if len(host_port)>1: port=int(host_port[1])
             if host_port[0]: host=host_port[0]
         app.run(host=host, port=port)
-    else: sign_request(db, req_id, *map(lambda x: x.split("=",1), sys.argv[2:]))
+    else:
+        dn_args=map(lambda x: x.split("=",1), sys.argv[2:])
+        if not dn_args:
+            while True:
+                comp=raw_input("DN component or Enter to finish (ex: CN=user): ")
+                if not comp: break
+                dn_args.append(comp.split("=", 1))
+        if not dn_args: raise ValueError("Need to give DN to client")
+        sign_request(db, req_id, *dn_args)
