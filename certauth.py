@@ -152,8 +152,11 @@ Usage: %(arg0)s <req_id> [<dnval=x1> ..]
         cursor=db.cursor()
         try: cursor.execute("select req_id,uname,resource,request_info from requests where cert_serial is null")
         except Exception as e:
-            print >>sys.stderr,"Database error:",e
-            print >>sys.stderr,"Possibly should initialize database with: sqlite3 %s < %s"%(DBNAME, os.path.join(my_dir, "db.sql")),
+            print >>sys.stderr, "Database error:",e
+            if raw_input("Do you want to initialize %s? [y/N] "%(DBNAME, )).lower().startswith("y"):
+                os.environ["CERT_DB"]=DBNAME
+                os.environ["DB_SQL"]=os.path.join(my_dir, "db.sql")
+                os.system("sqlite3 \"$CERT_DB\" < \"$DB_SQL\"")
             first=None
         req_id=None
         for (req_id,uname,resource,req_info) in cursor:
