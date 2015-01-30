@@ -1,6 +1,7 @@
 #!/usr/bin/python
 
 import os,sys
+import pprint
 
 my_dir=os.path.dirname(__file__)
 sys.path.append(os.path.join(my_dir, "lib"))
@@ -149,20 +150,19 @@ Usage: %(arg0)s <req_id> [<dnval=x1> ..]
  OR    %(arg0)s --server [<ip>][:<port>]
 """%{"arg0":os.path.basename(sys.argv[0])}
         cursor=db.cursor()
-        first="Currently unsigned requests:"
-        try: cursor.execute("select req_id,uname,resource from requests where cert_serial is null")
+        try: cursor.execute("select req_id,uname,resource,request_info from requests where cert_serial is null")
         except Exception as e:
             print >>sys.stderr,"Database error:",e
             print >>sys.stderr,"Possibly should initialize database with: sqlite3 %s < %s"%(DBNAME, os.path.join(my_dir, "db.sql")),
             first=None
         req_id=None
-        for (req_id,uname,resource) in cursor:
-            if first:
-                print first,
-                first=None
-            print "%s=%s@%s"%(req_id,uname,resource),
-        if first: print "No unsigned requests"
-        else: print
+        for (req_id,uname,resource,req_info) in cursor:
+            print "Unsigned request", `req_id`
+            print "\tUsername:", uname
+            print "\tResource:", resource
+            print "\tRequest info:"
+            pprint.pprint(json.loads(req_info))
+            print
         raise SystemExit(1)
     if req_id=="--server":
         port=8080
