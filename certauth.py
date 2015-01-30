@@ -194,6 +194,18 @@ Usage: %(arg0)s <req_id> [<dnval=x1> ..]
             print "\tRequest info:"
             pprint.pprint(json.loads(req_info))
             print
+        if not os.path.exists(CA_CRT):
+            if raw_input("Do you want to create %s? [y/N] "%(CA_CRT,)).lower().startswith("y"):
+                from M2Crypto import RSA, X509, EVP, ASN1
+                if not os.path.exists(CA_KEY):
+                    print "Saving key to %s"%(CA_KEY,)
+                    RSA.gen_key(2432, 0x10001).save_key(CA_KEY, None)
+                key=EVP.load_key(CA_KEY)
+                cert=create_cert(key, key, exts=[
+                    X509.new_extension("basicConstraints", "CA:TRUE", critical=True),
+                    X509.new_extension("keyUsage", "Certificate Sign, CRL Sign", critical=True),
+                ])
+                cert.save_pem(CA_CRT)
         raise SystemExit(1)
     if req_id=="--server":
         port=8080
