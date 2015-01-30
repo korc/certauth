@@ -141,6 +141,34 @@ if bottle.DEBUG:
         ret.append("Headers: \n\t%s"%("\n\t".join(map(lambda x: "%s=%r"%(x, request.headers.raw(x)),request.headers))))
         return "\n".join(ret)
 
+def create_cert(pubkey, ca_key, issuer=None, exts=None):
+    if exts is None: exts=[
+        X509.new_extension('basicConstraints', 'CA:FALSE', critical = True),
+        X509.new_extension('keyUsage', 'digitalSignature, keyEncipherment', critical = True),
+        X509.new_extension('extendedKeyUsage', 'clientAuth'),
+    ]
+    now=long(time.time())
+    cert=X509.X509()
+    cert.set_version(2)
+    cert.set_serial_number(now)
+    not_before=ASN1.ASN1_UTCTIME()
+    not_before.set_time(now)
+    cert.set_not_before(not_before)
+    not_after=ASN1.ASN1_UTCTIME()
+    not_after.set_time(now+365*24*3600)
+    cert.set_not_after(not_after)
+    cert.set_pubkey(pubkey)
+    subject=X509.X509_Name()
+    while True:
+        c=raw_input("Subject component (like CN=XYZ, Enter to finish): ")
+        if not c: break
+        setattr(subject, *(c.split("=", 1)))
+    cert.set_subject(subject)
+    cert.set_issuer(subject if issuer is None else issuer)
+    map(cert.add_ext, exts)
+    cert.sign(pkey=ca_key, md="sha256")
+    return cert
+
 if __name__ == '__main__':
     db=sqlite3.connect(DBNAME)
     try: req_id=sys.argv[1]
