@@ -188,14 +188,14 @@ def create_cert(pubkey, ca_key, issuer=None, exts=None, subject_dn=None):
     cert.sign(pkey=ca_key, md="sha256")
     return cert
 
-if __name__ == '__main__':
+def main(argv):
     db=sqlite3.connect(DBNAME)
-    try: req_id=sys.argv[1]
+    try: req_id=argv[1]
     except IndexError:
         print >>sys.stderr, """
 Usage: %(arg0)s <req_id> [<dnval=x1> ..]
  OR    %(arg0)s --server [<ip>][:<port>]
-"""%{"arg0":os.path.basename(sys.argv[0])}
+"""%{"arg0":os.path.basename(argv[0])}
         cursor=db.cursor()
         try: cursor.execute("select req_id,uname,resource,request_info from requests where cert_serial is null")
         except Exception as e:
@@ -229,10 +229,13 @@ Usage: %(arg0)s <req_id> [<dnval=x1> ..]
     if req_id=="--server":
         port=8080
         host="127.0.0.1"
-        if len(sys.argv)>2:
-            host_port=sys.argv[2].split(":",1)
+        if len(argv)>2:
+            host_port=argv[2].split(":",1)
             if len(host_port)>1: port=int(host_port[1])
             if host_port[0]: host=host_port[0]
         app.run(host=host, port=port)
     else:
-        sign_request(db, req_id, subject_dn=map(lambda x: x.split("=",1), sys.argv[2:]) or None)
+        sign_request(db, req_id, subject_dn=map(lambda x: x.split("=",1), argv[2:]) or None)
+
+if __name__ == '__main__':
+    main(sys.argv)
