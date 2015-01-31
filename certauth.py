@@ -116,16 +116,8 @@ class SignedPublicKeyAndChallenge(univ.Sequence):
         namedtype.NamedType("signature", univ.BitString()),
     )
 
-def sign_request(db, req_id, subject_dn=None):
-    from M2Crypto import X509, EVP, RSA, BIO
-    cursor=db.cursor()
-    cursor.execute(sql_existing, (req_id,))
-    row=cursor.fetchone()
-    if row is None:
-        raise KeyError("Request with req_id=%r not found"%(req_id,))
-    spkac_data,uname,resource,have_user, have_cert=row
-    if have_cert:
-        raise ValueError("already have cert")
+def spkac2pubkey(spkac_data):
+    from M2Crypto import BIO, EVP, RSA
     from pyasn1.codec.der.decoder import decode as decode_der
     from pyasn1.codec.der.encoder import encode as encode_der
     spkac_asn1, extra_data=decode_der(spkac_data.decode("base64"), asn1Spec=SignedPublicKeyAndChallenge())
@@ -134,11 +126,20 @@ def sign_request(db, req_id, subject_dn=None):
     pubkey_bio.close()
     pubkey=EVP.PKey()
     pubkey.assign_rsa(RSA.load_pub_key_bio(pubkey_bio))
+    return pubkey
+
+def sign_request(db, req_id, subject_dn=None):
+    from M2Crypto import X509, EVP
+    cursor=db.cursor()
+    cursor.execute(sql_existing, (req_id,))
+    row=cursor.fetchone()
+    if row is None: raise KeyError("Request with req_id=%r not found"%(req_id,))
+    spkac_data,uname,resource,have_user, have_cert=row
+    if have_cert: raise ValueError("already have cert")
     ca_crt=X509.load_cert(CA_CRT)
-    cert=create_cert(pubkey, EVP.load_key(CA_KEY), ca_crt.get_subject(), subject_dn=subject_dn)
+    cert=create_cert(spkac2pubkey(spkac_data), EVP.load_key(CA_KEY), ca_crt.get_subject(), subject_dn=subject_dn)
     cursor.execute("insert into certs (cert, cert_serial) values (?,?)", (cert.as_pem(), cert.get_serial_number()))
-    if not have_user:
-        cursor.execute("insert into users (uname) values (?)", (uname,))
+    if not have_user: cursor.execute("insert into users (uname) values (?)", (uname,))
     cursor.execute("insert into user_certs (uname, resource, cert_serial) values (?,?,?)", (uname, resource, cert.get_serial_number()))
     cursor.execute("update requests set cert_serial=? where req_id=?", (cert.get_serial_number(), req_id,))
     db.commit()
